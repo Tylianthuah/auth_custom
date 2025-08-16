@@ -1,0 +1,57 @@
+// schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  admin
+  user
+}
+
+enum OAuthProvider {
+  discord
+  github
+}
+
+model User {
+  id        String             @id @default(uuid()) @db.Char(36)
+  name      String
+  email     String             @unique
+  password  String?            @db.Text
+  salt      String?            @db.Text
+  role      UserRole           @default(user)
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+  accounts  UserOAuthAccount[]
+  sessions  Session[]
+
+  @@map("users")
+}
+
+model UserOAuthAccount {
+  userId            String        @db.Char(36)
+  provider          OAuthProvider
+  providerAccountId String        @unique
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([providerAccountId, provider])
+  @@map("user_oauth_accounts")
+}
+
+model Session {
+  sessionId String   @unique      
+  userId    String
+  role      String
+  expires   DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

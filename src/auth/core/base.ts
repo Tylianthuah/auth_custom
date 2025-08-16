@@ -1,7 +1,5 @@
-import { Postpone } from "next/dist/server/app-render/dynamic-rendering";
+import { GithubUserSchema, TokenResponse } from "../nextjs/schema";
 import { Cookies } from "./session";
-import { headers } from "next/headers";
-import { raw } from "@prisma/client/runtime/library";
 
 export class OAuthClient<T> {
   private get redirectURL() {
@@ -12,12 +10,43 @@ export class OAuthClient<T> {
     let url = new URL("https://github.com/login/oauth/authorize");
     url.searchParams.set("client_id", process.env.GITHUB_CLIENT_ID as string);
     url.searchParams.set("redirect_uri", this.redirectURL);
-    url.searchParams.set("scope", "user");
-
+    url.searchParams.set("scope", "read:user user:email");
+    console.log(url.toString());
     return url.toString();
   }
 
-  async fetchUsers(code: string) : Promise<{accessToken : string, tokenType: string}> {
+  async fetchUser(code: string) {
+    let { access_token, token_type } = await this.fetchToken(code);
+    const userUrl = new URL("https://api.github.com/user");
+    let response = await fetch(userUrl, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${access_token}` ,
+        "Content-Type": "application/json",
+      },
+    });
+
+    let user = await response.json();
+
+    // 2. If email is missing, fetch from /user/emails
+    if (!user.email) {
+      const emailRes = await fetch("https://api.github.com/user/emails", {
+        headers: { Authorization: `Bearer ${access_token}` },
+      });
+      const emails = await emailRes.json();
+
+      const primaryEmail = emails.find((e: any) => e.primary && e.verified);
+      user.email = primaryEmail?.email ?? null;
+    }
+
+    return {
+      id: user.id,
+      name: user.name,
+      email : user.email,
+    };
+  }
+
+  private async fetchToken(code: string): Promise<TokenResponse> {
     let response = await fetch("https://github.com/login/oauth/access_token", {
       method: "POST",
       headers: {
@@ -32,20 +61,19 @@ export class OAuthClient<T> {
       }),
     });
 
-    if(!response.ok) {
-        throw new Error(`Token request failed: ${response.status}`)
+    if (!response.ok) {
+      throw new Error(`Token request failed: ${response.status}`);
     }
 
     let rawData = await response.json();
 
-    if(!rawData.access_token || !rawData.token_type){
-        console.log("Invalid Token")
+    if (!rawData.access_token || !rawData.token_type) {
+      console.log("Invalid Token");
     }
 
-    console.log(rawData)
     return {
-        accessToken : rawData.access_token,
-        tokenType: rawData.token_type
-    }
+      access_token: rawData.access_token,
+      token_type: rawData.token_type,
+    };
   }
 }
